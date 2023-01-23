@@ -9,7 +9,6 @@ import org.eclipse.jgit.api.errors.GitAPIException;
 
 import java.io.*;
 import java.net.URL;
-import java.nio.file.Files;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.*;
@@ -43,34 +42,29 @@ public class IndexesSaver {
         return records;
     }
 
-    private static String CurrentlyDate(){
+    private static File getRepositoryPath() {
+        String home = System.getenv("HOME");
+        return new File(home + "/.cache/maven-index-list");
+    }
+
+    private static String CurrentlyDate() {
         DateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd");
         Date date = new Date();
         return dateFormat.format(date);
     }
 
-
-    // supported next args:
-    // 0: token-string for git repository.
-    // 1: `DEBUG` value to enable debug logs.
-    public static void main(String[] args) throws IOException {
+    public static void main(String[] args){
         final Logger logger = Logger.getLogger(IndexesSaver.class);
-        String token = "";
-        if (args.length == 1) {
-            token = args[0];
-        }
+        String token = System.getenv("GITHUB_TOKEN");
 
-        File repositoryPath = Files.createTempDirectory("maven-index-list").toFile();
-        //File repositoryPath = new File("/home/dmitriy/work/temp/3427/1111/maven-index-list");
-        GitWorker gitWorker = new GitWorker(token);
-
+        File repositoryPath = getRepositoryPath();
+        GitWorker gitWorker;
         try {
-            logger.info("cloning " + MAVEN_INDEX_LIST_REPO);
-            gitWorker.clone(MAVEN_INDEX_LIST_REPO, repositoryPath);
-            //gitWorker.open(repositoryPath);
-            logger.info(MAVEN_INDEX_LIST_REPO + " was cloned to " + repositoryPath);
+            logger.info("clone or pull: " + MAVEN_INDEX_LIST_REPO + " to :" + repositoryPath);
+            gitWorker = new GitWorker(token, MAVEN_INDEX_LIST_REPO, repositoryPath);
         } catch (GitAPIException e) {
-            throw new RuntimeException(e);
+            logger.error("error to clone/pull repository: " + e);
+            return;
         }
 
         int lastIndex;
@@ -80,6 +74,9 @@ public class IndexesSaver {
             Properties props = loadProperties(remote.locate(""));
             lastIndex = Integer.parseInt(props.getProperty(LAST_INCREMENTAL_INDEX));
             logger.info("last index has been found: " + lastIndex);
+        }catch (NumberFormatException | IOException e){
+            logger.error("lastIndex not found: " + e);
+            return;
         }
 
         int numberOfIndexes = 0; // number of indexes found from all archives
@@ -113,7 +110,7 @@ public class IndexesSaver {
 
             } catch (FileNotFoundException e) {
                 // maven repository doesn't have some first archives
-                // e.g. from 787 to 161
+                // e.g. from 787 to 323
                 // after got exception - stop parse
                 logger.info("Parse of archives finished.");
                 logger.info("Last parsed archive: " + String.format(ARCHIVE_NAME, i - 1));
@@ -121,18 +118,19 @@ public class IndexesSaver {
                 break;
             } catch (IOException e) {
                 logger.error("unexpected error: " + e);
+                return;
             }
 
         }
         try {
             logger.info("git add: added all changed json files");
-            boolean hasUncommittedChanges = gitWorker.addUncommitted();
+            boolean hasUncommittedChanges = gitWorker.addUncommittedChanges();
             if (hasUncommittedChanges) {
                 logger.info("git commit: created new commit");
                 gitWorker.commit(CurrentlyDate());
                 logger.info("git push");
                 gitWorker.push();
-            }else {
+            } else {
                 logger.info("There are no changes. Skip git push");
             }
         } catch (GitAPIException e) {

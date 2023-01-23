@@ -12,11 +12,22 @@ public class GitWorker {
     private Git git;
     private final String token;
 
-    public GitWorker(String token) {
+    public GitWorker(String token, String repoURL, File localDirPath) throws GitAPIException {
         this.token = token;
+        cloneOrPull(repoURL, localDirPath);
     }
 
-    public void clone(String repoURL, File localDirPath) throws GitAPIException {
+    private void cloneOrPull(String repoURL, File localDirPath) throws GitAPIException {
+        try {
+            open(localDirPath);
+            pull();
+        } catch (IOException e) {
+            // clone repository when localDirPath doesn't exist
+            clone(repoURL, localDirPath);
+        }
+    }
+
+    private void clone(String repoURL, File localDirPath) throws GitAPIException {
         git = Git.cloneRepository()
                 .setURI(repoURL)
                 .setDirectory(localDirPath)
@@ -27,13 +38,15 @@ public class GitWorker {
         git = Git.open(localDirPath);
     }
 
+    private void pull() throws GitAPIException {
+        git.pull().call();
+    }
 
-
-    public boolean addUncommitted() throws GitAPIException {
+    public boolean addUncommittedChanges() throws GitAPIException {
         Status status = git.status().call();
         boolean hasUncommittedChanges = status.hasUncommittedChanges();
-        if (hasUncommittedChanges){
-            for (String uncommitted: status.getUncommittedChanges()){
+        if (hasUncommittedChanges) {
+            for (String uncommitted : status.getUncommittedChanges()) {
                 git.add().addFilepattern(uncommitted).call();
             }
         }
@@ -43,6 +56,7 @@ public class GitWorker {
     public void commit(String commitMessage) throws GitAPIException {
         git.commit().setMessage(commitMessage).call();
     }
+
     public void push() throws GitAPIException {
         git.push().setCredentialsProvider(new UsernamePasswordCredentialsProvider(token, "")).call();
     }
